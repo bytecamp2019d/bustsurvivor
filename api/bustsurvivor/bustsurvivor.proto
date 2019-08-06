@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package bustsurvivor;
+
+service SurvivalService {
+    rpc BustSurvival (BustSurvivalRequest) returns (BustSurvivalResponse) {}
+}
+
+message BustSurvivalRequest {
+    int64 cards_to_pick = 1;
+    int64 bust_threshold = 2;
+}
+
+message BustSurvivalResponse {
+   Fraction probability = 1;
+   string error = 2;
+}
+
+message Fraction {
+    sfixed64 numerator = 1;
+    sfixed64 denominator = 2;
+}

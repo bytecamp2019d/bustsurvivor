@@ -80,10 +80,8 @@ func getScore(d time.Duration, errorCount int64, requestCount int64) float64 {
 		return 0
 	}
 	for i := 0; i < 4; i++ {
-		for j := 0; j < 2; j++ {
-			if d < timeTable[i][1] {
-				return scoreTable[i]
-			}
+		if d < timeTable[i][1] {
+			return scoreTable[i]
 		}
 	}
 	return 0
@@ -107,6 +105,7 @@ func weightUpdate() {
 		}
 
 		if worstScore >= scoreTable[0] {
+			hasChanged = false
 			continue
 		} else {
 			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
@@ -114,7 +113,15 @@ func weightUpdate() {
 			for i := 0; i < serverNum; i++ {
 				weights[i] += weightToRebalance * (score[i] / totalScore)
 			}
+			hasChanged = true
 		}
+		for i := 0; i < serverNum; i++ {
+			durationRequestCount[i] = 0
+			durationRequestLatency[i] = 0
+			durationRequestErrorCount[i] = 0
+		}
+		durationLock.Unlock()
+		time.Sleep(time.Second)
 	}
 }
 
@@ -150,29 +157,30 @@ func GetReport() {
 	}
 	fmt.Printf("Finally weights: %v\n", weights)
 }
-func checkWeight() {
 
-	for {
-		pkg := <-calcChan
-		totalDurs[pkg.Index] += pkg.Dur
-		hints[pkg.Index] += 1
-		if pkg.Err {
-			errCnts[pkg.Index] += 1
-		}
-		// calculate new weights with calcPkg
-		// sync lock?
-		rwLock.Lock()
-		// todo: modify weights
-		/* mock start */
-		//weights[pkg.Index] = calculator.GetServer(pkg)
-		weights[pkg.Index] = pkg.Dur.Seconds()
-		//fmt.Println(weights)
-		hasChanged = true
-		/* mock end */
-		rwLock.Unlock()
-	}
-
-}
+//func checkWeight() {
+//
+//	for {
+//		pkg := <-calcChan
+//		totalDurs[pkg.Index] += pkg.Dur
+//		hints[pkg.Index] += 1
+//		if pkg.Err {
+//			errCnts[pkg.Index] += 1
+//		}
+//		// calculate new weights with calcPkg
+//		// sync lock?
+//		rwLock.Lock()
+//		// todo: modify weights
+//		/* mock start */
+//		//weights[pkg.Index] = calculator.GetServer(pkg)
+//		weights[pkg.Index] = pkg.Dur.Seconds()
+//		//fmt.Println(weights)
+//		hasChanged = true
+//		/* mock end */
+//		rwLock.Unlock()
+//	}
+//
+//}
 
 func initClients(totalConnNum int) {
 	for i := 0; i < serverNum; i++ {

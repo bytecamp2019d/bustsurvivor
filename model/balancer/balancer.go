@@ -38,8 +38,6 @@ type clientPool struct {
 
 var connNum = 1
 
-var hasChanged = false
-var rwLock sync.RWMutex
 var clientPools [serverNum]clientPool
 
 var calcChan = make(chan calculator.CalcPkg)
@@ -55,10 +53,8 @@ func InitBalancer(totalConnNum int) {
 		clientPools[i].lastUsed = -1
 	}
 	initClients(totalConnNum)
-	//calculator.InitCalculator(serverNum)
-	//go checkWeight()
 	go requestStatistic()
-	go weightUpdate()
+	go weightUpdate(100)
 }
 
 var durationLock sync.RWMutex
@@ -87,9 +83,10 @@ func getScore(d time.Duration, errorCount int64, requestCount int64) float64 {
 	return 0
 }
 
-func weightUpdate() {
+func weightUpdate(frequency time.Duration) {
 	for {
 		durationLock.Lock()
+		fmt.Println("get lock")
 		serverIndexToRebalance := -1
 		worstScore := math.MaxFloat64
 		totalScore := 0.0
@@ -97,7 +94,7 @@ func weightUpdate() {
 
 		for i := 0; i < serverNum; i++ {
 			if durationRequestCount[i] == 0 {
-				score[i] = 0
+				score[i] = 30
 			} else {
 				score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
 			}
@@ -109,23 +106,22 @@ func weightUpdate() {
 		}
 
 		if worstScore >= scoreTable[0] {
-			hasChanged = false
 			continue
-		} else {
-			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
-			weights[serverIndexToRebalance] = weightToRebalance * diffRatio
-			for i := 0; i < serverNum; i++ {
-				weights[i] += weightToRebalance * (score[i] / totalScore)
-			}
-			hasChanged = true
 		}
+
+		weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
+		weights[serverIndexToRebalance] = weightToRebalance * diffRatio
+		for i := 0; i < serverNum; i++ {
+			weights[i] += weightToRebalance * (score[i] / totalScore)
+		}
+
 		for i := 0; i < serverNum; i++ {
 			durationRequestCount[i] = 0
 			durationRequestLatency[i] = 0
 			durationRequestErrorCount[i] = 0
 		}
 		durationLock.Unlock()
-		time.Sleep(time.Second)
+		time.Sleep(frequency * time.Millisecond)
 	}
 }
 
@@ -137,14 +133,17 @@ func requestStatistic() {
 	}
 
 	for {
-		durationLock.Lock()
 		pkg := <-calcChan
+		hints[pkg.Index]++
+		durationLock.Lock()
 		durationRequestCount[pkg.Index]++
 		if pkg.Err {
 			durationRequestErrorCount[pkg.Index]++
+			errCnts[pkg.Index]++
 		}
 		durationRequestLatency[pkg.Index] += pkg.Dur
 		durationLock.Unlock()
+		totalDurs[pkg.Index] += pkg.Dur
 	}
 }
 
@@ -162,30 +161,6 @@ func GetReport() {
 	fmt.Printf("Finally weights: %v\n", weights)
 }
 
-//func checkWeight() {
-//
-//	for {
-//		pkg := <-calcChan
-//		totalDurs[pkg.Index] += pkg.Dur
-//		hints[pkg.Index] += 1
-//		if pkg.Err {
-//			errCnts[pkg.Index] += 1
-//		}
-//		// calculate new weights with calcPkg
-//		// sync lock?
-//		rwLock.Lock()
-//		// todo: modify weights
-//		/* mock start */
-//		//weights[pkg.Index] = calculator.GetServer(pkg)
-//		weights[pkg.Index] = pkg.Dur.Seconds()
-//		//fmt.Println(weights)
-//		hasChanged = true
-//		/* mock end */
-//		rwLock.Unlock()
-//	}
-//
-//}
-
 func initClients(totalConnNum int) {
 	for i := 0; i < serverNum; i++ {
 		for j := 0; j < totalConnNum; j++ {
@@ -201,26 +176,23 @@ func initClients(totalConnNum int) {
 }
 
 func getClient() (bs.SurvivalServiceClient, int) {
-	if !hasChanged {
-		rand.Seed(time.Now().Unix()) // initialize global pseudo random generator
-		index := rand.Intn(serverNum)
-		connIndex := clientPools[index].lastUsed
-		connIndex = (connIndex + 1) % connNum
-		clientPools[index].lastUsed = connIndex
-		return clientPools[index].clients[connIndex], index
+	judgeList := make([]float64, 0)
+	sum := 0.0
+
+	for _, w := range weights {
+		sum += w
+		judgeList = append(judgeList, sum)
 	}
 
-	rwLock.RLock()
+	rand.Seed(time.Now().UnixNano())
+	randNum := rand.Float64() * sum // range in [0, sum)
 	bestIndex := 0
-	bestWeight := weights[bestIndex]
-
-	for i, weight := range weights {
-		if weight < bestWeight {
-			bestWeight = weight
+	for i := 0; i < len(judgeList); i++ {
+		if randNum < judgeList[i] {
 			bestIndex = i
+			break
 		}
 	}
-	rwLock.RUnlock()
 	connIndex := clientPools[bestIndex].lastUsed
 	connIndex = (connIndex + 1) % connNum
 	clientPools[bestIndex].lastUsed = connIndex

@@ -1,22 +1,27 @@
 {
   "cases": [
     {
+      "connNum": 1,
+      "rps": 10,
+      "loopNum": 50,
+      "nextInterval": 2
+    },{
       "connNum": 3,
       "rps": 100,
       "loopNum": 500,
-      "nextInterval": 2
+      "nextInterval": 10
     },
     {
       "connNum": 3,
-      "rps": 100,
+      "rps": 300,
       "loopNum": 500,
-      "nextInterval": 2
+      "nextInterval": 10
     },
     {
-      "connNum": 3,
+      "connNum": 10,
       "rps": 100,
       "loopNum": 500,
-      "nextInterval": 2
+      "nextInterval": 10
     }
   ]
 }

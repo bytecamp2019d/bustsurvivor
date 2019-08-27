@@ -96,7 +96,11 @@ func weightUpdate() {
 		score := [serverNum]float64{0}
 
 		for i := 0; i < serverNum; i++ {
-			score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
+			if durationRequestCount[i] == 0 {
+				score[i] = 0
+			} else {
+				score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
+			}
 			totalScore += score[i]
 			if worstScore > score[i] {
 				worstScore = score[i]

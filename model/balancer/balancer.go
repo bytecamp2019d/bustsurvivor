@@ -9,6 +9,7 @@ import (
 	"time"
 
 	bs "github.com/bytecamp2019d/bustsurvivor/api/bustsurvivor"
+	"github.com/bytecamp2019d/bustsurvivor/model/calculator"
 )
 
 var IPs = [...] string{
@@ -39,13 +40,8 @@ var hasChanged = false
 var rwLock sync.RWMutex
 var clientPools [serverNum]clientPool
 
-type calcPkg struct {
-	err   bool
-	dur   time.Duration
-	index int
-}
 
-var calcChan = make(chan calcPkg)
+var calcChan = make(chan calculator.CalcPkg)
 
 
 func InitBalancer(totalConnNum int) {
@@ -58,6 +54,7 @@ func InitBalancer(totalConnNum int) {
 		clientPools[i].lastUsed = -1
 	}
 	initClients(totalConnNum)
+	calculator.InitCalculator(serverNum)
 	go checkWeight()
 }
 
@@ -77,17 +74,19 @@ func GetReport() {
 func checkWeight() {
 	for {
 		pkg := <-calcChan
-		totalDurs[pkg.index] += pkg.dur
-		hints[pkg.index] += 1
-		if pkg.err {
-			errCnts[pkg.index] += 1
+		totalDurs[pkg.Index] += pkg.Dur
+		hints[pkg.Index] += 1
+		if pkg.Err {
+			errCnts[pkg.Index] += 1
 		}
 		// calculate new weights with calcPkg
 		// sync lock?
 		rwLock.Lock()
 		// todo: modify weights
 		/* mock start */
-		weights[pkg.index] = pkg.dur.Seconds()
+		//weights[pkg.Index] = calculator.GetServer(pkg)
+		weights[pkg.Index] = pkg.Dur.Seconds()
+		//fmt.Println(weights)
 		hasChanged = true
 		/* mock end */
 		rwLock.Unlock()
@@ -144,10 +143,10 @@ func SendRequest(req *bs.BustSurvivalRequest, durChan chan time.Duration, errCha
 
 	durChan <- dur
 	errChan <- err
-	calcChan <- calcPkg{
-		err:   err != nil,
-		dur:   dur,
-		index: index,
+	calcChan <- calculator.CalcPkg{
+		Err:   err != nil,
+		Dur:   dur,
+		Index: index,
 	}
 	_ = resp // ignore resp
 }

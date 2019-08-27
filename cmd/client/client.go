@@ -7,6 +7,7 @@ import (
 	"github.com/bytecamp2019d/bustsurvivor/model/balancer"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -23,7 +24,9 @@ type TestCases struct {
 
 // call .
 func call() {
-	jsonFile, err := os.Open("test_config.json")
+	configPath, _ := filepath.Abs("test_config.json")
+	jsonFile, err := os.Open(configPath)
+
 	if err != nil {
 		panic(err)
 	}

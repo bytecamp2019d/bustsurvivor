@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"google.golang.org/grpc"
+	"math"
 	"math/rand"
 	"sync"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/bytecamp2019d/bustsurvivor/model/calculator"
 )
 
-var IPs = [...] string{
+var IPs = [...]string{
 	"127.0.0.1:8080",
 	"127.0.0.1:8081",
 	//"127.0.0.1:8082",
@@ -20,12 +21,13 @@ var IPs = [...] string{
 }
 
 const serverNum = len(IPs)
+const diffRatio = 0.5
 
 var totalDurs [serverNum]time.Duration
 var errCnts [serverNum]int
 var hints [serverNum]int
 
-var weights [serverNum] float64
+var weights [serverNum]float64
 
 var ctx = context.Background()
 
@@ -40,13 +42,12 @@ var hasChanged = false
 var rwLock sync.RWMutex
 var clientPools [serverNum]clientPool
 
-
 var calcChan = make(chan calculator.CalcPkg)
-
 
 func InitBalancer(totalConnNum int) {
 	connNum = totalConnNum
 	for i := 0; i < serverNum; i++ {
+		weights[i] = 100
 		totalDurs[i] = 0
 		errCnts[i] = 0
 		hints[i] = 0
@@ -54,8 +55,86 @@ func InitBalancer(totalConnNum int) {
 		clientPools[i].lastUsed = -1
 	}
 	initClients(totalConnNum)
-	calculator.InitCalculator(serverNum)
-	go checkWeight()
+	//calculator.InitCalculator(serverNum)
+	//go checkWeight()
+	go requestStatistic()
+	go weightUpdate()
+}
+
+var durationLock sync.RWMutex
+var durationRequestCount [serverNum]int64
+var durationRequestLatency [serverNum]time.Duration
+var durationRequestErrorCount [serverNum]int64
+var timeTable = [4][2]time.Duration{
+	{time.Millisecond * 0, time.Millisecond * 20},
+	{time.Millisecond * 20, time.Millisecond * 50},
+	{time.Millisecond * 50, time.Millisecond * 100},
+	{time.Millisecond * 100, time.Millisecond * 1000 * 1000},
+}
+var scoreTable = [4]float64{
+	90, 60, 30, 0,
+}
+
+func getScore(d time.Duration, errorCount int64, requestCount int64) float64 {
+	if errorCount*100 >= requestCount {
+		return 0
+	}
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 2; j++ {
+			if d < timeTable[i][1] {
+				return scoreTable[i]
+			}
+		}
+	}
+	return 0
+}
+
+func weightUpdate() {
+	for {
+		durationLock.Lock()
+		serverIndexToRebalance := -1
+		worstScore := math.MaxFloat64
+		totalScore := 0.0
+		score := [serverNum]float64{0}
+
+		for i := 0; i < serverNum; i++ {
+			score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
+			totalScore += score[i]
+			if worstScore > score[i] {
+				worstScore = score[i]
+				serverIndexToRebalance = i
+			}
+		}
+
+		if worstScore >= scoreTable[0] {
+			continue
+		} else {
+			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
+			weights[serverIndexToRebalance] = weightToRebalance * diffRatio
+			for i := 0; i < serverNum; i++ {
+				weights[i] += weightToRebalance * (score[i] / totalScore)
+			}
+		}
+	}
+}
+
+func requestStatistic() {
+	for i := 0; i < serverNum; i++ {
+		durationRequestCount[i] = 0
+		durationRequestLatency[i] = 0
+		durationRequestErrorCount[i] = 0
+	}
+
+	for {
+		durationLock.Lock()
+		pkg := <-calcChan
+		durationRequestCount[pkg.Index]++
+		if pkg.Err {
+			durationRequestErrorCount[pkg.Index]++
+		}
+		durationRequestLatency[pkg.Index] += pkg.Dur
+		durationLock.Unlock()
+	}
 }
 
 func GetReport() {
@@ -72,6 +151,7 @@ func GetReport() {
 	fmt.Printf("Finally weights: %v\n", weights)
 }
 func checkWeight() {
+
 	for {
 		pkg := <-calcChan
 		totalDurs[pkg.Index] += pkg.Dur

@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {
+      "connNum": 3,
+      "rps": 1000,
+      "loopNum": 500,
+      "nextInterval": 10
+    },
+    {
+      "connNum": 30,
+      "rps": 100,
+      "loopNum": 500,
+      "nextInterval": 2
+    }
+  ]
+}

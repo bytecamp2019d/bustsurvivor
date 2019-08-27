@@ -20,7 +20,7 @@ var IPs = [...] string{
 
 const serverNum = len(IPs)
 
-var totalDur [serverNum]time.Duration
+var totalDurs [serverNum]time.Duration
 var errCnts [serverNum]int
 var hints [serverNum]int
 
@@ -47,29 +47,37 @@ type calcPkg struct {
 
 var calcChan = make(chan calcPkg)
 
+
 func InitBalancer(totalConnNum int) {
 	connNum = totalConnNum
+	for i := 0; i < serverNum; i++ {
+		totalDurs[i] = 0
+		errCnts[i] = 0
+		hints[i] = 0
+		clientPools[i].clients = nil
+		clientPools[i].lastUsed = -1
+	}
 	initClients(totalConnNum)
 	go checkWeight()
 }
 
-func GetReporter() {
+func GetReport() {
 	for i := 0; i < serverNum; i += 1 {
-		fmt.Printf("Hint %d server %d times\n", i, hints[i])
+		fmt.Printf("Hint %s server %d times\n", IPs[i], hints[i])
 		if hints[i] > 0 {
 			fmt.Printf(
 				"Average letency is %v, errRate is %.1f%%\n",
-				totalDur[i]/time.Duration(hints[i]),
+				totalDurs[i]/time.Duration(hints[i]),
 				float64(100*errCnts[i])/float64(hints[i]),
 			)
 		}
-
 	}
+	fmt.Printf("Finally weights: %v\n", weights)
 }
 func checkWeight() {
 	for {
 		pkg := <-calcChan
-		totalDur[pkg.index] += pkg.dur
+		totalDurs[pkg.index] += pkg.dur
 		hints[pkg.index] += 1
 		if pkg.err {
 			errCnts[pkg.index] += 1
@@ -83,7 +91,6 @@ func checkWeight() {
 		hasChanged = true
 		/* mock end */
 		rwLock.Unlock()
-		time.Sleep(1000 * time.Millisecond)
 	}
 
 }
@@ -134,6 +141,7 @@ func SendRequest(req *bs.BustSurvivalRequest, durChan chan time.Duration, errCha
 	begin := time.Now()
 	resp, err := client.BustSurvival(ctx, req)
 	dur := time.Since(begin)
+
 	durChan <- dur
 	errChan <- err
 	calcChan <- calcPkg{

@@ -1,33 +1,49 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	bs "github.com/bytecamp2019d/bustsurvivor/api/bustsurvivor"
 	"github.com/bytecamp2019d/bustsurvivor/model/balancer"
-	"math/rand"
+	"io/ioutil"
+	"os"
 	"time"
 )
 
-const (
-	connNum    = 30
-	rps        = 100
-	loopNum    = 500
-	requestNum = 10 // 测试总请求次数
-)
+type TestCase struct {
+	ConnNum      int `json:"connNum"`
+	Rps          int `json:"rps"`
+	LoopNum      int `json:"loopNum"`
+	NextInterval int `json:"nextInterval"`
+}
+
+type TestCases struct {
+	Cases []TestCase `json:"cases"`
+}
 
 // call .
 func call() {
-	balancer.InitBalancer(connNum)
+	jsonFile, err := os.Open("test_config.json")
+	if err != nil {
+		panic(err)
+	}
+	defer jsonFile.Close()
+	var tcs TestCases
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+	_ = json.Unmarshal(byteValue, &tcs)
+	for caseIndex, tc := range tcs.Cases {
+		fmt.Printf("============= No.%d test case ===============\n", caseIndex+1)
+		connNum := tc.ConnNum
+		rps := tc.Rps
+		loopNum := tc.LoopNum
+		nextInterval := tc.NextInterval
 
-	totalDur := time.Duration(0)
-	durChan := make(chan time.Duration)
-	errChan := make(chan error)
-	errCnt := 0
-	for r := 0; r < requestNum; r++ {
-		requestInterval := time.Second * time.Duration(rand.Intn(20))
-		fmt.Printf("Next request lists will come %v latter.\n", requestInterval)
-		time.Sleep(requestInterval)
-		fmt.Println("Come a list of requests!")
+		balancer.InitBalancer(connNum)
+
+		totalDur := time.Duration(0)
+		durChan := make(chan time.Duration)
+		errChan := make(chan error)
+		errCnt := 0
 		for i := 0; i < connNum; i++ {
 			go func() {
 				for j := 0; j < loopNum; j++ {
@@ -36,10 +52,10 @@ func call() {
 						BustThreshold: 80,
 					}
 					go balancer.SendRequest(req, durChan, errChan)
-					time.Sleep(time.Second / rps)
+					time.Sleep(time.Second / time.Duration(rps))
 				}
 			}()
-			time.Sleep(time.Second / rps / connNum)
+			time.Sleep(time.Second / time.Duration(rps*connNum))
 		}
 
 		for i := 0; i < connNum*loopNum; i++ {
@@ -49,14 +65,17 @@ func call() {
 				errCnt++
 			}
 		}
+
+		fmt.Println("### Client side ###")
+		fmt.Printf("Average letency is %v, errRate is %.1f%%\n",
+			totalDur/time.Duration(connNum*loopNum),
+			float64(100*errCnt)/float64(connNum*loopNum),
+		)
+		fmt.Println("### Balancer side ###")
+		balancer.GetReport()
+		fmt.Printf("Next request lists will come %vs latter.\n", nextInterval)
+		time.Sleep(time.Duration(nextInterval) * time.Second)
 	}
-
-	fmt.Printf("Average letency is %v, errRate is %.1f%%\n",
-		totalDur/(connNum*loopNum*requestNum),
-		float64(100*errCnt)/float64(connNum*loopNum*requestNum),
-	)
-	balancer.GetReporter()
-
 }
 
 func main() {

@@ -19,10 +19,10 @@ const (
 func call() {
 	balancer.InitBalancer(connNum)
 
-	var totalDur time.Duration
-	var durChan chan time.Duration
-	var errChan chan error
-	var errCnt int
+	totalDur := time.Duration(0)
+	durChan := make(chan time.Duration)
+	errChan := make(chan error)
+	errCnt := 0
 	for r := 0; r < requestNum; r++ {
 		requestInterval := time.Second * time.Duration(rand.Intn(20))
 		fmt.Printf("Next request lists will come %v latter.\n", requestInterval)
@@ -49,10 +49,13 @@ func call() {
 				errCnt++
 			}
 		}
-
-		fmt.Printf("Average letency is %v, errRate is %.1f%%\n", totalDur/connNum/loopNum, float64(100*errCnt)/float64(connNum*loopNum))
-		balancer.GetReporter()
 	}
+
+	fmt.Printf("Average letency is %v, errRate is %.1f%%\n",
+		totalDur/(connNum*loopNum*requestNum),
+		float64(100*errCnt)/float64(connNum*loopNum*requestNum),
+	)
+	balancer.GetReporter()
 
 }
 

@@ -18,16 +18,13 @@ var IPs = [...] string{
 	//"127.0.0.1:8083",
 }
 
-var durChans [serverNum]chan time.Duration // for reporter
-var errChans [serverNum]chan error         // for reporter
+const serverNum = len(IPs)
 
 var totalDur [serverNum]time.Duration
 var errCnts [serverNum]int
 var hints [serverNum]int
 
-var weights [len(IPs)] float64
-
-const serverNum = len(IPs)
+var weights [serverNum] float64
 
 var ctx = context.Background()
 
@@ -52,32 +49,28 @@ var calcChan = make(chan calcPkg)
 
 func InitBalancer(totalConnNum int) {
 	connNum = totalConnNum
-	for i := 0; i < serverNum; i += 1 {
-		durChans[i] = make(chan time.Duration)
-		errChans[i] = make(chan error)
-	}
 	initClients(totalConnNum)
-	//defer func() {
-	//	fmt.Println("Shit!!!")
-	//	syscall.Exit(1)
-	//}()
 	go checkWeight()
 }
 
 func GetReporter() {
 	for i := 0; i < serverNum; i += 1 {
 		fmt.Printf("Hint %d server %d times\n", i, hints[i])
-		fmt.Printf(
-			"Average letency is %v, errRate is %.1f%%\n",
-			totalDur[i]/time.Duration(hints[i]),
-			float64(100*errCnts[i])/float64(hints[i]),
-		)
+		if hints[i] > 0 {
+			fmt.Printf(
+				"Average letency is %v, errRate is %.1f%%\n",
+				totalDur[i]/time.Duration(hints[i]),
+				float64(100*errCnts[i])/float64(hints[i]),
+			)
+		}
+
 	}
 }
 func checkWeight() {
 	for {
 		pkg := <-calcChan
 		totalDur[pkg.index] += pkg.dur
+		hints[pkg.index] += 1
 		if pkg.err {
 			errCnts[pkg.index] += 1
 		}
@@ -90,7 +83,6 @@ func checkWeight() {
 		hasChanged = true
 		/* mock end */
 		rwLock.Unlock()
-		fmt.Println(time.Now().UTC())
 		time.Sleep(1000 * time.Millisecond)
 	}
 
@@ -142,8 +134,6 @@ func SendRequest(req *bs.BustSurvivalRequest, durChan chan time.Duration, errCha
 	begin := time.Now()
 	resp, err := client.BustSurvival(ctx, req)
 	dur := time.Since(begin)
-	durChans[index] <- dur
-	errChans[index] <- err
 	durChan <- dur
 	errChan <- err
 	calcChan <- calcPkg{

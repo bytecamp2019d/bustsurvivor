@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"time"
 )
 
 type SQ struct {
@@ -10,6 +11,16 @@ type SQ struct {
 	M, N int //m是列数,n是行数
 	Data [][]float64
 }
+
+type calcPkg struct {
+	err   bool
+	dur   time.Duration
+	index int
+}
+
+var dyInit [][]float64          //初始时所有服务器的性能分设置为60
+var scoreInit = 60.0            //初始性能分
+var numServer, countTime = 4, 5 //
 
 //矩阵定义
 func (this *SQ) Set(m int, n int, data []float64) {
@@ -149,8 +160,8 @@ func Inverse(Matrix [][]float64, N int) (MatrixC [][]float64) {
 
 	return MatrixC
 }
-func getX(x []float64, N int) [][]float64 {
-	COUNT := 4
+func GetX(x []float64, N int) [][]float64 {
+	COUNT := N
 	var matrix [][]float64
 	for i := 0; i <= N; i++ {
 		var tmp []float64
@@ -173,19 +184,87 @@ func getX(x []float64, N int) [][]float64 {
 	fmt.Println("tmp ===== ", tmp)
 	return tmp
 }
-
-func main() {
-	datax := []float64{1, 2, 3, 4, 5}
-	datay := [][]float64{{2, 0}, {5, 0}, {10, 0}, {17, 0}, {26, 0}}
-	tmp := getX(datax, 4)
-	Stmp := SQ{5, 5, tmp}
-	//fmt.Println(Stmp.Data)
-	Sdatay := SQ{1, 5, datay}
+func GetRes(datay [][]float64, N int, X float64) float64 {
+	Stmp := GetMatrixX()
+	Sdatay := SQ{1, N + 1, datay}
 	res := Mul(Stmp, Sdatay)
-	fmt.Println("res  =========", res)
 	sum := 0.0
-	for i := 0; i < 5; i++ {
-		sum += math.Pow(6.0, float64(i)) * res[i][0]
+	for i := 0; i <= N; i++ {
+		sum += math.Pow(X, float64(i)) * res[i][0]
 	}
-	fmt.Println(sum)
+	return sum
+}
+func GetMatrixX() SQ {
+	var datax []float64
+	for i := 0; i < countTime; i++ { //这里似乎有问题，x的取值不好说
+		datax = append(datax, float64(i)*0.2+1.0)
+	}
+	tmp := GetX(datax, countTime-1)
+	Stmp := SQ{countTime, countTime, tmp}
+	return Stmp
+}
+
+func GetScore(ans calcPkg) float64 {
+	erTime := 0.0
+	if ans.err == true {
+		erTime = 100.0
+	}
+	return ((ans.dur).Seconds()*1000.0 + erTime)
+}
+func GetServer(now calcPkg) float64 {
+	var tmpY [][]float64
+	for j := 1; j < countTime; j++ {
+		dyInit[now.index][j-1] = dyInit[now.index][j]
+		tmpY = append(tmpY, []float64{dyInit[now.index][j-1], 0})
+	}
+	dyInit[now.index][countTime-1] = GetScore(now)
+	tmpY = append(tmpY, []float64{dyInit[now.index][countTime-1]})
+
+	return GetRes(tmpY, countTime-1, 2)
+}
+func Init() {
+	for i := 0; i < numServer; i++ {
+		for j := 0; j < countTime; i++ {
+			dyInit[i][j] = scoreInit
+		}
+	}
+}
+
+func getTestY() [][]float64 {
+	var yy [][]float64
+	for i := 1; i <= countTime; i++ {
+		yy = append(yy, []float64{math.Pow(float64(i), 2) + 1.0, 0})
+	}
+	return yy
+}
+func GetDataY(dy []calcPkg) [][]float64 {
+	var res [][]float64
+	for i := 0; i < len(dy); i++ {
+		var tt float64 = dy[i].dur.Seconds() * 1000
+		er := 0.0
+		if dy[i].err {
+			er = 100
+		}
+		value := (tt + er) / 100
+		res = append(res, []float64{value, 0.0})
+	}
+	return res
+}
+func main() {
+	//datax := []float64{1, 2, 3, 4, 5}
+	//datay := [][]float64{{2, 0}, {5, 0}, {10, 0}, {17, 0}, {26, 0}}
+	//tmp := getX(datax, 4)
+	//Stmp := SQ{5, 5, tmp}
+	////fmt.Println(Stmp.Data)
+	//Sdatay := SQ{1, 5, datay}
+	//res := Mul(Stmp, Sdatay)
+	//fmt.Println("res  =========", res)
+	//sum := 0.0
+	//for i := 0; i < 5; i++ {
+	//	sum += math.Pow(6.0, float64(i)) * res[i][0]
+	//}
+	//fmt.Println(sum)
+	//yy := getTestY()
+	//fmt.Println(GetRes(yy,4,7))
+
 }

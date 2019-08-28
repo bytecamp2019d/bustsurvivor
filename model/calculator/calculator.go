@@ -12,7 +12,7 @@ type CalcPkg struct {
 }
 
 const (
-	countTime = 5
+	countTime = 9
 	scoreInit = 10.0
 )
 
@@ -172,7 +172,7 @@ func Inverse(Matrix [][]float64, N int) (MatrixC [][]float64) {
 func GetMatrixX() SQ {
 	var datax []float64
 	for i := 0; i < countTime; i++ { //这里似乎有问题，x的取值不好说
-		datax = append(datax, float64(i)*0.2+1.0)
+		datax = append(datax, float64(i))
 	}
 	tmp := GetX(datax, countTime-1)
 	Stmp := SQ{countTime, countTime, tmp}
@@ -206,7 +206,7 @@ func GetServer(now CalcPkg) float64 {
 	dyInit[now.Index][countTime-1] = GetScore(now)
 	tmpY = append(tmpY, []float64{dyInit[now.Index][countTime-1],0})
 	//fmt.Println("tmpY",tmpY)
-	return GetRes(tmpY, countTime-1, 2)
+	return GetRes(tmpY, countTime-1, 10)
 }
 
 func InitCalculator(serverNum int) {

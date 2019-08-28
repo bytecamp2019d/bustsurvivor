@@ -20,6 +20,13 @@ var IPs = [...]string{
 	//"127.0.0.1:8083",
 }
 
+const (
+	BEST = iota
+	NORMAL
+	WEAK
+	SHIT
+)
+
 const serverNum = len(IPs)
 const diffRatio = 0.5
 
@@ -54,7 +61,7 @@ func InitBalancer(totalConnNum int) {
 	}
 	initClients(totalConnNum)
 	go requestStatistic()
-	go weightUpdate(100)
+	go weightUpdate(1000)
 }
 
 var durationLock sync.RWMutex
@@ -71,12 +78,12 @@ var scoreTable = [4]float64{
 	90, 60, 30, 0,
 }
 
-func getScore(d time.Duration, errorCount int64, requestCount int64) float64 {
+func getScore(avgDuration time.Duration, errorCount int64, requestCount int64) float64 {
 	if errorCount*100 >= requestCount {
 		return 0
 	}
 	for i := 0; i < 4; i++ {
-		if d < timeTable[i][1] {
+		if avgDuration < timeTable[i][1] {
 			return scoreTable[i]
 		}
 	}
@@ -86,15 +93,15 @@ func getScore(d time.Duration, errorCount int64, requestCount int64) float64 {
 func weightUpdate(frequency time.Duration) {
 	for {
 		durationLock.Lock()
-		fmt.Println("get lock")
 		serverIndexToRebalance := -1
 		worstScore := math.MaxFloat64
 		totalScore := 0.0
 		score := [serverNum]float64{0}
-
+		hasFree := false
 		for i := 0; i < serverNum; i++ {
 			if durationRequestCount[i] == 0 {
-				score[i] = 30
+				score[i] = scoreTable[BEST]
+				hasFree = true
 			} else {
 				score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
 			}
@@ -105,14 +112,21 @@ func weightUpdate(frequency time.Duration) {
 			}
 		}
 
-		if worstScore >= scoreTable[0] {
-			continue
-		}
+		if worstScore <= scoreTable[NORMAL] || hasFree {
+			var niubiServers = []int{0}
+			totalBalanceScore := 0.0
+			for index, s := range score {
+				if s > score[NORMAL] {
+					totalBalanceScore += s
+					niubiServers = append(niubiServers, index)
+				}
+			}
 
-		weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
-		weights[serverIndexToRebalance] = weightToRebalance * diffRatio
-		for i := 0; i < serverNum; i++ {
-			weights[i] += weightToRebalance * (score[i] / totalScore)
+			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
+			weights[serverIndexToRebalance] = weights[serverIndexToRebalance] * diffRatio
+			for _, serverIndex := range niubiServers {
+				weights[serverIndex] += weightToRebalance * (score[serverIndex] / totalBalanceScore)
+			}
 		}
 
 		for i := 0; i < serverNum; i++ {

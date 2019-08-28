@@ -6,7 +6,6 @@ import (
 	"google.golang.org/grpc"
 	"math"
 	"math/rand"
-	"sync"
 	"time"
 
 	bs "github.com/bytecamp2019d/bustsurvivor/api/bustsurvivor"
@@ -16,6 +15,8 @@ import (
 var IPs = [...]string{
 	"127.0.0.1:8080",
 	"127.0.0.1:8081",
+	"172.20.10.2:8080",
+	"172.20.10.2:8081",
 	//"127.0.0.1:8082",
 	//"127.0.0.1:8083",
 }
@@ -54,10 +55,8 @@ func InitBalancer(totalConnNum int) {
 	}
 	initClients(totalConnNum)
 	go requestStatistic()
-	go weightUpdate(100)
 }
 
-var durationLock sync.RWMutex
 var durationRequestCount [serverNum]int64
 var durationRequestLatency [serverNum]time.Duration
 var durationRequestErrorCount [serverNum]int64
@@ -83,46 +82,57 @@ func getScore(d time.Duration, errorCount int64, requestCount int64) float64 {
 	return 0
 }
 
-func weightUpdate(frequency time.Duration) {
-	for {
-		durationLock.Lock()
-		fmt.Println("get lock")
-		serverIndexToRebalance := -1
-		worstScore := math.MaxFloat64
-		totalScore := 0.0
-		score := [serverNum]float64{0}
+func weightUpdate() {
+	fmt.Println("get lock")
+	worstScore := math.MaxFloat64
+	score := [serverNum]float64{0}
 
-		for i := 0; i < serverNum; i++ {
-			if durationRequestCount[i] == 0 {
-				score[i] = 30
-			} else {
-				score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
-			}
-			totalScore += score[i]
-			if worstScore > score[i] {
-				worstScore = score[i]
-				serverIndexToRebalance = i
-			}
+	for i := 0; i < serverNum; i++ {
+		if durationRequestCount[i] == 0 {
+			score[i] = 30
+		} else {
+			score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
 		}
-
-		if worstScore >= scoreTable[0] {
-			continue
+		println(i, durationRequestCount[i], score[i], durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i]*100.0/durationRequestCount[i])
+		if worstScore > score[i] {
+			worstScore = score[i]
 		}
+	}
 
-		weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
-		weights[serverIndexToRebalance] = weightToRebalance * diffRatio
-		for i := 0; i < serverNum; i++ {
-			weights[i] += weightToRebalance * (score[i] / totalScore)
-		}
-
+	if worstScore >= scoreTable[0] {
 		for i := 0; i < serverNum; i++ {
 			durationRequestCount[i] = 0
 			durationRequestLatency[i] = 0
 			durationRequestErrorCount[i] = 0
 		}
-		durationLock.Unlock()
-		time.Sleep(frequency * time.Millisecond)
+		return
 	}
+
+	weightToRebalance := 0.0
+	for i := 0; i < serverNum; i++ {
+		if score[i] == worstScore {
+			weightToRebalance += weights[i] * (1 - diffRatio)
+			weights[i] = weights[i] * diffRatio
+		}
+	}
+	healtyTotalScore := 0.0
+	for i := 0; i < serverNum; i++ {
+		if score[i] > worstScore {
+			healtyTotalScore += score[i]
+		}
+	}
+	for i := 0; i < serverNum; i++ {
+		if score[i] > worstScore {
+			weights[i] += weightToRebalance * (score[i] / healtyTotalScore)
+		}
+	}
+
+	for i := 0; i < serverNum; i++ {
+		durationRequestCount[i] = 0
+		durationRequestLatency[i] = 0
+		durationRequestErrorCount[i] = 0
+	}
+	println(weights[0], weights[1], weights[2], weights[3])
 }
 
 func requestStatistic() {
@@ -135,15 +145,22 @@ func requestStatistic() {
 	for {
 		pkg := <-calcChan
 		hints[pkg.Index]++
-		durationLock.Lock()
 		durationRequestCount[pkg.Index]++
 		if pkg.Err {
 			durationRequestErrorCount[pkg.Index]++
 			errCnts[pkg.Index]++
 		}
 		durationRequestLatency[pkg.Index] += pkg.Dur
-		durationLock.Unlock()
 		totalDurs[pkg.Index] += pkg.Dur
+		normalServerNum := 0
+		for i := 0; i < serverNum; i++ {
+			if durationRequestCount[i] > 100 {
+				normalServerNum += 1
+			}
+		}
+		if normalServerNum*5 >= serverNum*4 {
+			weightUpdate()
+		}
 	}
 }
 

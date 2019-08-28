@@ -28,7 +28,7 @@ const (
 )
 
 const serverNum = len(IPs)
-const diffRatio = 0.5
+const diffRatio = 0.95
 
 var totalDurs [serverNum]time.Duration
 var errCnts [serverNum]int
@@ -49,16 +49,19 @@ var clientPools [serverNum]clientPool
 
 var calcChan = make(chan calculator.CalcPkg)
 
-func InitBalancer(totalConnNum int) {
+func InitBalancer(totalConnNum int, firstTest bool) {
 	connNum = totalConnNum
 	for i := 0; i < serverNum; i++ {
-		weights[i] = 100
 		totalDurs[i] = 0
 		errCnts[i] = 0
 		hints[i] = 0
 		clientPools[i].clients = nil
 		clientPools[i].lastUsed = -1
+		if firstTest {
+			weights[i] = 100
+		}
 	}
+
 	initClients(totalConnNum)
 	go requestStatistic()
 	go weightUpdate(1000)
@@ -96,36 +99,41 @@ func weightUpdate(frequency time.Duration) {
 		serverIndexToRebalance := -1
 		worstScore := math.MaxFloat64
 		totalScore := 0.0
-		score := [serverNum]float64{0}
+		score := [serverNum]float64{}
 		hasFree := false
 		for i := 0; i < serverNum; i++ {
 			if durationRequestCount[i] == 0 {
 				score[i] = scoreTable[BEST]
 				hasFree = true
 			} else {
-				score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
+				score[i] = getScore(
+					durationRequestLatency[i]/time.Duration(durationRequestCount[i]),
+					durationRequestErrorCount[i],
+					durationRequestCount[i],
+				)
 			}
 			totalScore += score[i]
-			if worstScore > score[i] {
+			if score[i] < worstScore {
 				worstScore = score[i]
 				serverIndexToRebalance = i
 			}
 		}
-
 		if worstScore <= scoreTable[NORMAL] || hasFree {
-			var niubiServers = []int{0}
+			niubiServers := make([]int, 0)
 			totalBalanceScore := 0.0
 			for index, s := range score {
-				if s > score[NORMAL] {
+				if s > scoreTable[NORMAL] && serverIndexToRebalance != index {
 					totalBalanceScore += s
 					niubiServers = append(niubiServers, index)
 				}
 			}
 
-			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
-			weights[serverIndexToRebalance] = weights[serverIndexToRebalance] * diffRatio
-			for _, serverIndex := range niubiServers {
-				weights[serverIndex] += weightToRebalance * (score[serverIndex] / totalBalanceScore)
+			if len(niubiServers) > 0 {
+				weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
+				weights[serverIndexToRebalance] = weights[serverIndexToRebalance] * diffRatio
+				for _, serverIndex := range niubiServers {
+					weights[serverIndex] += weightToRebalance * (score[serverIndex] / totalBalanceScore)
+				}
 			}
 		}
 
@@ -134,7 +142,9 @@ func weightUpdate(frequency time.Duration) {
 			durationRequestLatency[i] = 0
 			durationRequestErrorCount[i] = 0
 		}
+
 		durationLock.Unlock()
+		fmt.Println(weights)
 		time.Sleep(frequency * time.Millisecond)
 	}
 }
@@ -195,6 +205,7 @@ func getClient() (bs.SurvivalServiceClient, int) {
 
 	for _, w := range weights {
 		sum += w
+		//sum += 20  // todo: same weight
 		judgeList = append(judgeList, sum)
 	}
 

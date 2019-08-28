@@ -41,7 +41,7 @@ func call() {
 		loopNum := tc.LoopNum
 		nextInterval := tc.NextInterval
 
-		balancer.InitBalancer(connNum)
+		balancer.InitBalancer(connNum, caseIndex == 0)
 
 		totalDur := time.Duration(0)
 		durChan := make(chan time.Duration)

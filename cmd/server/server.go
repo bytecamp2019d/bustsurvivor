@@ -44,4 +44,5 @@ func (s *Server) BustSurvival(ctx context.Context, req *bs.BustSurvivalRequest) 
 
 func main() {
 	Serve()
+	//1Serve1()
 }

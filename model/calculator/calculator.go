@@ -12,7 +12,7 @@ type CalcPkg struct {
 }
 
 const (
-	countTime = 9
+	countTime = 8
 	scoreInit = 10.0
 )
 
@@ -121,7 +121,6 @@ func Det(Matrix [][]float64, N int) float64 {
 	return 0
 }
 
-
 //矩阵求逆
 func Inverse(Matrix [][]float64, N int) (MatrixC [][]float64) {
 	var T0, T1, T2, T3 int
@@ -172,7 +171,7 @@ func Inverse(Matrix [][]float64, N int) (MatrixC [][]float64) {
 func GetMatrixX() SQ {
 	var datax []float64
 	for i := 0; i < countTime; i++ { //这里似乎有问题，x的取值不好说
-		datax = append(datax, float64(i))
+		datax = append(datax, float64(i)+1)
 	}
 	tmp := GetX(datax, countTime-1)
 	Stmp := SQ{countTime, countTime, tmp}
@@ -204,18 +203,11 @@ func GetServer(now CalcPkg) float64 {
 		tmpY = append(tmpY, []float64{dyInit[now.Index][j-1], 0})
 	}
 	dyInit[now.Index][countTime-1] = GetScore(now)
-	tmpY = append(tmpY, []float64{dyInit[now.Index][countTime-1],0})
+	tmpY = append(tmpY, []float64{dyInit[now.Index][countTime-1], 0})
 	//fmt.Println("tmpY",tmpY)
 	return GetRes(tmpY, countTime-1, 10)
 }
 
-func InitCalculator(serverNum int) {
-	for i := 0; i < serverNum; i++ {
-		var tmp []float64
-		for j := 0; j < countTime; j++ {
-			tmp = append(tmp,scoreInit + float64(j) * 2.0)
-		}
-		dyInit = append(dyInit, tmp)
-	}
+func InitCalculator() {
 	Stmp = GetMatrixX()
 }

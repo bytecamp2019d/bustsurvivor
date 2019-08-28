@@ -49,7 +49,7 @@ var clientPools [serverNum]clientPool
 
 var calcChan = make(chan calculator.CalcPkg)
 
-func InitBalancer(totalConnNum int) {
+func InitBalancer(totalConnNum int, isFirst bool) {
 	connNum = totalConnNum
 	for i := 0; i < serverNum; i++ {
 		weights[i] = 100

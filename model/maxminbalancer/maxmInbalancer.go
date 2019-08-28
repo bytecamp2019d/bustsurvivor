@@ -35,6 +35,9 @@ var hints [serverNum]int
 
 var weights [serverNum]float64
 
+var COUNT = 8
+var weightSS [10][10]float64
+
 var ctx = context.Background()
 
 type clientPool struct {
@@ -49,6 +52,7 @@ var clientPools [serverNum]clientPool
 var calcChan = make(chan calculator.CalcPkg)
 
 func InitBalancer(totalConnNum int, isFirst bool) {
+	calculator.InitCalculator()
 	fmt.Println(isFirst)
 	connNum = totalConnNum
 	for i := 0; i < serverNum; i++ {
@@ -96,7 +100,23 @@ func serverCMP(x int, y int) int {
 	}
 	return 0
 }
+func updateWeight() {
+	sum := 0.0
+	var score []float64
+	for i := 0; i < serverNum; i++ {
+		var tmp [][]float64
+		for j := 0; j < COUNT; j++ {
+			tmp = append(tmp, []float64{weightSS[i][j+1] - weightSS[i][j], 0})
+		}
+		tt := calculator.GetRes(tmp, COUNT-1, 9)
+		score = append(score, tt)
+		sum += tt
+	}
+	for i := 0; i < serverNum; i++ {
+		weights[i] *= (1.0 - score[i]/sum)
+	}
 
+}
 func weightUpdateLittle() {
 	for i := 0; i < serverNum; i++ {
 		if durationRequestCount[i] < 100 {
@@ -136,7 +156,15 @@ func weightUpdateLittle() {
 		durationRequestErrorCount[i] = 0
 		time.Duration(22).Nanoseconds()
 	}
-
+	for i := 0; i < serverNum; i++ {
+		weightSS[COUNT][i] = weights[i]
+	}
+	if COUNT == 8 {
+		updateWeight()
+		COUNT = 0
+		return
+	}
+	COUNT++
 }
 
 func requestStatistic() {

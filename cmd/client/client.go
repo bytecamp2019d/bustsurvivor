@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	bs "github.com/bytecamp2019d/bustsurvivor/api/bustsurvivor"
-	"github.com/bytecamp2019d/bustsurvivor/model/balancer"
+	"github.com/bytecamp2019d/bustsurvivor/model/maxminbalancer"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -41,7 +41,7 @@ func call() {
 		loopNum := tc.LoopNum
 		nextInterval := tc.NextInterval
 
-		balancer.InitBalancer(connNum, caseIndex == 0)
+		maxminbalancer.InitBalancer(connNum, caseIndex == 0)
 
 		totalDur := time.Duration(0)
 		durChan := make(chan time.Duration)
@@ -54,7 +54,7 @@ func call() {
 						CardsToPick:   10,
 						BustThreshold: 80,
 					}
-					go balancer.SendRequest(req, durChan, errChan)
+					go maxminbalancer.SendRequest(req, durChan, errChan)
 					time.Sleep(time.Second / time.Duration(rps))
 				}
 			}()
@@ -75,7 +75,7 @@ func call() {
 			float64(100*errCnt)/float64(connNum*loopNum),
 		)
 		fmt.Println("### Balancer side ###")
-		balancer.GetReport()
+		maxminbalancer.GetReport()
 		fmt.Printf("Next request lists will come %vs latter.\n", nextInterval)
 		time.Sleep(time.Duration(nextInterval) * time.Second)
 	}

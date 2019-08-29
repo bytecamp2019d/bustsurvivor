@@ -29,6 +29,10 @@ const (
 
 const serverNum = len(IPs)
 
+var COUNT = 0
+var wait = 30
+var weightSS [10][10]float64
+
 var totalDurs [serverNum]time.Duration
 var errCnts [serverNum]int
 var hints [serverNum]int
@@ -61,8 +65,28 @@ func InitBalancer(totalConnNum int) {
 	initClients(totalConnNum)
 	go requestStatistic()
 }
+
+func updateWeight() {
+	sum := 0.0
+	var score []float64
+	for i := 0; i < serverNum; i++ {
+		var tmp [][]float64
+		for j := 0; j < COUNT; j++ {
+			tmp = append(tmp, []float64{weightSS[i][j+1] - weightSS[i][j], 0})
+		}
+		//fmt.Println(tmp)
+		tt := calculator.GetRes(tmp, COUNT-1, 5)
+		score = append(score, tt)
+		sum += math.Abs(tt)
+	}
+	for i := 0; i < serverNum; i++ {
+		weights[i] *= (1.0 - score[i]/sum)
+	}
+}
+
 const durationRequestCountThreshold = 100
-const pct99Pos = durationRequestCountThreshold*0.99
+const pct99Pos = durationRequestCountThreshold * 0.99
+
 var durationRequestDetailLatency [serverNum][durationRequestCountThreshold]int64
 var durationRequestCount [serverNum]int64
 var durationRequestTotalLatency [serverNum]time.Duration
@@ -110,43 +134,42 @@ func serverCMP(x int,y int)int{
 	return 0
 }*/
 
-func serverCMPpct99(x int,y int)int{
-	errorrateX := durationRequestErrorCount[x]*1.0/durationRequestCount[x]
-	errorrateY := durationRequestErrorCount[y]*1.0/durationRequestCount[y]
-	if(errorrateX<errorrateY){
+func serverCMPpct99(x int, y int) int {
+	errorrateX := durationRequestErrorCount[x] * 1.0 / durationRequestCount[x]
+	errorrateY := durationRequestErrorCount[y] * 1.0 / durationRequestCount[y]
+	if errorrateX < errorrateY {
 		return 1
 	}
-	if(errorrateX>errorrateY){
+	if errorrateX > errorrateY {
 		return -1
 	}
 	pct99LatencyX := durationRequestDetailLatency[x][int(pct99Pos)]
 	pct99LatencyY := durationRequestDetailLatency[y][int(pct99Pos)]
-	if(pct99LatencyX<pct99LatencyY){
+	if pct99LatencyX < pct99LatencyY {
 		return 1
 	}
-	if(pct99LatencyX>pct99LatencyY){
+	if pct99LatencyX > pct99LatencyY {
 		return -1
 	}
 	return 0
 }
 
-
-func weightUpdateLittle(){
-	if(serverNum<2){
+func weightUpdateLittle() {
+	if serverNum < 2 {
 		return
 	}
-	for i:=0;i<serverNum;i++{
-		if(durationRequestCount[i]<100){
+	for i := 0; i < serverNum; i++ {
+		if durationRequestCount[i] < 100 {
 			return
 		}
 	}
 
-	for i:=0;i<serverNum;i++{
+	for i := 0; i < serverNum; i++ {
 		sortkeys.Int64s(durationRequestDetailLatency[i][:])
 	}
 
-	bestServer:=0
-	worstServer:=0
+	bestServer := 0
+	worstServer := 0
 	/*
 		for i:=1;i<serverNum;i++{
 			if(serverCMP(worstServer,i)==1){
@@ -158,19 +181,19 @@ func weightUpdateLittle(){
 		}
 	*/
 
-	for i:=1;i<serverNum;i++{
-		if(serverCMPpct99(worstServer,i)==1){
-			worstServer=i
+	for i := 1; i < serverNum; i++ {
+		if serverCMPpct99(worstServer, i) == 1 {
+			worstServer = i
 		}
-		if(serverCMPpct99(i,bestServer)==1){
-			bestServer=i
+		if serverCMPpct99(i, bestServer) == 1 {
+			bestServer = i
 		}
 	}
 
 	var diffRatio float64
-	if(durationRequestErrorCount[worstServer]>0||durationRequestErrorCount[bestServer]>0){
-		diffRatio=0.05
-	}else{
+	if durationRequestErrorCount[worstServer] > 0 || durationRequestErrorCount[bestServer] > 0 {
+		diffRatio = 0.05
+	} else {
 		/*
 			avgLatencyBAD := durationRequestTotalLatency[worstServer]*1.0/time.Duration(durationRequestCount[worstServer])
 			avgLatencyGOOD := durationRequestTotalLatency[bestServer]*1.0/time.Duration(durationRequestCount[bestServer])
@@ -178,37 +201,66 @@ func weightUpdateLittle(){
 		*/
 		pct99LatencyBAD := float64(durationRequestDetailLatency[worstServer][int(pct99Pos)])
 		pct99LatencyGOOD := float64(durationRequestDetailLatency[bestServer][int(pct99Pos)])
-		diffRatio=math.Abs((pct99LatencyBAD-pct99LatencyGOOD)/(pct99LatencyBAD+pct99LatencyGOOD))
+		diffRatio = math.Abs((pct99LatencyBAD - pct99LatencyGOOD) / (pct99LatencyBAD + pct99LatencyGOOD))
 	}
-	if(diffRatio>0.05){
-		diffRatio=0.05
+	if diffRatio > 0.05 {
+		diffRatio = 0.05
 	}
 
-	weights[bestServer]+=weights[worstServer]*diffRatio
-	weights[worstServer]=weights[worstServer]*(1-diffRatio)
-	fmt.Println("loads finished:",durationRequestCount)
-	fmt.Print("latencyAVG: ")
-	for i:=0;i<serverNum;i++{
-		fmt.Print(" ", (durationRequestTotalLatency[i]/time.Duration(durationRequestCount[i])).Nanoseconds())
+	weights[bestServer] += weights[worstServer] * diffRatio
+	weights[worstServer] = weights[worstServer] * (1 - diffRatio)
+	//fmt.Println("loads finished:",durationRequestCount)
+	//fmt.Print("latencyAVG: ")
+	//for i:=0;i<serverNum;i++{
+	//	fmt.Print(" ", (durationRequestTotalLatency[i]/time.Duration(durationRequestCount[i])).Nanoseconds())
+	//}
+	//fmt.Println("")
+	//fmt.Print("latencyPCT99: ")
+	//for i:=0;i<serverNum;i++{
+	//	fmt.Print(" ", time.Duration(durationRequestDetailLatency[i][int(pct99Pos)]).Nanoseconds())
+	//}
+	//fmt.Println("")
+	//fmt.Println("weights:",weights)
+	for i := 0; i < serverNum; i++ {
+		weightSS[COUNT][i] = (durationRequestTotalLatency[i] / time.Duration(durationRequestCount[i])).Seconds() * 1000
 	}
-	fmt.Println("")
-	fmt.Print("latencyPCT99: ")
-	for i:=0;i<serverNum;i++{
-		fmt.Print(" ", time.Duration(durationRequestDetailLatency[i][int(pct99Pos)]).Nanoseconds())
+	for i := 0; i < serverNum; i++ {
+		fmt.Println("Server ==========================", i)
+		fmt.Print("处理请求数量：   ")
+		fmt.Println(durationRequestCount[i])
+		fmt.Print("平均时延： ")
+		fmt.Println(durationRequestTotalLatency[i] / time.Duration(durationRequestCount[i]))
 	}
-	fmt.Println("")
-	fmt.Println("weights:",weights)
+	for i := 0; i < serverNum; i++ {
+		fmt.Print(weights[i], "   ")
+	}
+	fmt.Println()
+	fmt.Println("==============================")
+
+	wait--
+	if wait < 0 {
+		if COUNT == 4 {
+			updateWeight()
+			COUNT = 0
+			fmt.Println("COUNT========================")
+			for i := 0; i < serverNum; i++ {
+				fmt.Print(weights[i], "    ")
+			}
+			fmt.Println("COUNT========================")
+			return
+		}
+		COUNT++
+	}
 	for i := 0; i < serverNum; i++ {
 		durationRequestCount[i] = 0
 		durationRequestTotalLatency[i] = 0
 		durationRequestErrorCount[i] = 0
-		for j:=0;j<durationRequestCountThreshold;j++{
-			durationRequestDetailLatency[i][j]=0
+		for j := 0; j < durationRequestCountThreshold; j++ {
+			durationRequestDetailLatency[i][j] = 0
 		}
 	}
 
 }
-
 
 func requestStatistic() {
 	for i := 0; i < serverNum; i++ {

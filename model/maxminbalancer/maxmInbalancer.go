@@ -131,7 +131,7 @@ func weightUpdateLittle() {
 		fmt.Print("处理请求数量：   ")
 		fmt.Println(durationRequestCount[i])
 		fmt.Print("平均时延： ")
-		fmt.Println(durationRequestLatency[i]/time.Duration(durationRequestCount[i]))
+		fmt.Println(durationRequestLatency[i] / time.Duration(durationRequestCount[i]))
 	}
 	for i := 0; i < serverNum; i++ {
 		fmt.Print(weights[i], "   ")
@@ -161,9 +161,9 @@ func weightUpdateLittle() {
 	}
 	weights[bestServer] += weights[worstServer] * diffRatio
 	weights[worstServer] = weights[worstServer] * (1 - diffRatio)
-	for i := 0; i < serverNum; i++ {
-		fmt.Print(" ", durationRequestLatency[i]/time.Duration(durationRequestCount[i]))
-	}
+	//for i := 0; i < serverNum; i++ {
+	//	fmt.Print(" ", durationRequestLatency[i]/time.Duration(durationRequestCount[i]))
+	//}
 	for i := 0; i < serverNum; i++ {
 		weightSS[COUNT][i] = (durationRequestLatency[i] / time.Duration(durationRequestCount[i])).Seconds() * 1000
 	}
@@ -174,13 +174,19 @@ func weightUpdateLittle() {
 		time.Duration(22).Nanoseconds()
 	}
 	wait--
-	if wait < 0{
-	if COUNT == 8 {
-		updateWeight()
-		COUNT = 0
-		return
-	}
-	COUNT++
+	if wait < 0 {
+		if COUNT == 8 {
+
+			updateWeight()
+			COUNT = 0
+			fmt.Println("COUNT========================")
+			for i := 0; i < serverNum; i++ {
+				fmt.Print(weights[i], "    ")
+			}
+			fmt.Println("COUNT========================")
+			return
+		}
+		COUNT++
 	}
 }
 

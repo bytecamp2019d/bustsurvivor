@@ -1,9 +1,9 @@
 {
   "cases": [
     {
-      "connNum": 1,
-      "rps": 10,
-      "loopNum": 50,
+      "connNum": 30,
+      "rps": 100,
+      "loopNum": 5000,
       "nextInterval": 2
     },{
       "connNum": 3,

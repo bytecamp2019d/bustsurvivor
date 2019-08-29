@@ -14,7 +14,7 @@ import (
 func Serve() {
 	srv := grpc.NewServer()
 	bs.RegisterSurvivalServiceServer(srv, &Server{})
-	address := ":8080"
+	address := ":8081"
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to listen on %s: %+v", address, err))

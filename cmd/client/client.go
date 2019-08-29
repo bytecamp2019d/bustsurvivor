@@ -78,6 +78,7 @@ func call() {
 		balancer.GetReport()
 		fmt.Printf("Next request lists will come %vs latter.\n", nextInterval)
 		time.Sleep(time.Duration(nextInterval) * time.Second)
+		break
 	}
 }
 

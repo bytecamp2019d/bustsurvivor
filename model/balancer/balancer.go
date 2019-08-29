@@ -3,10 +3,10 @@ package balancer
 import (
 	"context"
 	"fmt"
+	"github.com/gogo/protobuf/sortkeys"
 	"google.golang.org/grpc"
 	"math"
 	"math/rand"
-	"sync"
 	"time"
 
 	bs "github.com/bytecamp2019d/bustsurvivor/api/bustsurvivor"
@@ -14,21 +14,13 @@ import (
 )
 
 var IPs = [...]string{
-	"127.0.0.1:8080",
-	"127.0.0.1:8081",
-	//"127.0.0.1:8082",
-	//"127.0.0.1:8083",
+	"10.108.18.57:8080",
+	"10.108.18.57:8081",
+	"10.108.18.134:8080",
+	"10.108.18.135:8080",
 }
 
-const (
-	BEST = iota
-	NORMAL
-	WEAK
-	SHIT
-)
-
 const serverNum = len(IPs)
-const diffRatio = 0.5
 
 var totalDurs [serverNum]time.Duration
 var errCnts [serverNum]int
@@ -61,12 +53,15 @@ func InitBalancer(totalConnNum int) {
 	}
 	initClients(totalConnNum)
 	go requestStatistic()
-	go weightUpdate(1000)
+	//go weightUpdate(1000)
 }
 
-var durationLock sync.RWMutex
+const durationRequestCountThreshold = 100
+const pct99Pos = durationRequestCountThreshold * 0.99
+
+var durationRequestDetailLatency [serverNum][durationRequestCountThreshold]int64
 var durationRequestCount [serverNum]int64
-var durationRequestLatency [serverNum]time.Duration
+var durationRequestTotalLatency [serverNum]time.Duration
 var durationRequestErrorCount [serverNum]int64
 var timeTable = [4][2]time.Duration{
 	{time.Millisecond * 0, time.Millisecond * 20},
@@ -78,86 +73,194 @@ var scoreTable = [4]float64{
 	90, 60, 30, 0,
 }
 
-func getScore(avgDuration time.Duration, errorCount int64, requestCount int64) float64 {
-	if errorCount*100 >= requestCount {
-		return 0
+/*
+func serverCMP(x int,y int)int{
+	errorrateX := durationRequestErrorCount[x]*1.0/durationRequestCount[x]
+	errorrateY := durationRequestErrorCount[y]*1.0/durationRequestCount[y]
+	if(errorrateX<errorrateY){
+		return 1
 	}
-	for i := 0; i < 4; i++ {
-		if avgDuration < timeTable[i][1] {
-			return scoreTable[i]
-		}
+	if(errorrateX>errorrateY){
+		return -1
+	}
+	avgLatencyX := durationRequestTotalLatency[x]*1.0/time.Duration(durationRequestCount[x])
+	avgLatencyY := durationRequestTotalLatency[y]*1.0/time.Duration(durationRequestCount[y])
+	if(avgLatencyX<avgLatencyY){
+		return 1
+	}
+	if(avgLatencyX>avgLatencyY){
+		return -1
+	}
+	return 0
+}*/
+
+func serverCMPpct99(x int, y int) int {
+	errorrateX := durationRequestErrorCount[x] * 1.0 / durationRequestCount[x]
+	errorrateY := durationRequestErrorCount[y] * 1.0 / durationRequestCount[y]
+	if errorrateX < errorrateY {
+		return 1
+	}
+	if errorrateX > errorrateY {
+		return -1
+	}
+	pct99LatencyX := durationRequestDetailLatency[x][int(pct99Pos)]
+	pct99LatencyY := durationRequestDetailLatency[y][int(pct99Pos)]
+	if pct99LatencyX < pct99LatencyY {
+		return 1
+	}
+	if pct99LatencyX > pct99LatencyY {
+		return -1
 	}
 	return 0
 }
 
-func weightUpdate(frequency time.Duration) {
-	for {
-		durationLock.Lock()
-		serverIndexToRebalance := -1
-		worstScore := math.MaxFloat64
-		totalScore := 0.0
-		score := [serverNum]float64{0}
-		hasFree := false
-		for i := 0; i < serverNum; i++ {
-			if durationRequestCount[i] == 0 {
-				score[i] = scoreTable[BEST]
-				hasFree = true
-			} else {
-				score[i] = getScore(durationRequestLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
-			}
-			totalScore += score[i]
-			if worstScore > score[i] {
-				worstScore = score[i]
-				serverIndexToRebalance = i
-			}
-		}
-
-		if worstScore <= scoreTable[NORMAL] || hasFree {
-			var niubiServers = []int{0}
-			totalBalanceScore := 0.0
-			for index, s := range score {
-				if s > score[NORMAL] {
-					totalBalanceScore += s
-					niubiServers = append(niubiServers, index)
-				}
-			}
-
-			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
-			weights[serverIndexToRebalance] = weights[serverIndexToRebalance] * diffRatio
-			for _, serverIndex := range niubiServers {
-				weights[serverIndex] += weightToRebalance * (score[serverIndex] / totalBalanceScore)
-			}
-		}
-
-		for i := 0; i < serverNum; i++ {
-			durationRequestCount[i] = 0
-			durationRequestLatency[i] = 0
-			durationRequestErrorCount[i] = 0
-		}
-		durationLock.Unlock()
-		time.Sleep(frequency * time.Millisecond)
+func weightUpdateLittle() {
+	if serverNum < 2 {
+		return
 	}
+	for i := 0; i < serverNum; i++ {
+		if durationRequestCount[i] < 100 {
+			return
+		}
+	}
+
+	for i := 0; i < serverNum; i++ {
+		sortkeys.Int64s(durationRequestDetailLatency[i][:])
+	}
+
+	bestServer := 0
+	worstServer := 0
+	/*
+		for i:=1;i<serverNum;i++{
+			if(serverCMP(worstServer,i)==1){
+				worstServer=i
+			}
+			if(serverCMP(i,bestServer)==1){
+				bestServer=i
+			}
+		}
+	*/
+
+	for i := 1; i < serverNum; i++ {
+		if serverCMPpct99(worstServer, i) == 1 {
+			worstServer = i
+		}
+		if serverCMPpct99(i, bestServer) == 1 {
+			bestServer = i
+		}
+	}
+
+	var diffRatio float64
+	if durationRequestErrorCount[worstServer] > 0 || durationRequestErrorCount[bestServer] > 0 {
+		diffRatio = 0.05
+	} else {
+		/*
+			avgLatencyBAD := durationRequestTotalLatency[worstServer]*1.0/time.Duration(durationRequestCount[worstServer])
+			avgLatencyGOOD := durationRequestTotalLatency[bestServer]*1.0/time.Duration(durationRequestCount[bestServer])
+			diffRatio=math.Abs((avgLatencyBAD-avgLatencyGOOD).Seconds()/(avgLatencyBAD+avgLatencyGOOD).Seconds())
+		*/
+		pct99LatencyBAD := float64(durationRequestDetailLatency[worstServer][int(pct99Pos)])
+		pct99LatencyGOOD := float64(durationRequestDetailLatency[bestServer][int(pct99Pos)])
+		diffRatio = math.Abs((pct99LatencyBAD - pct99LatencyGOOD) / (pct99LatencyBAD + pct99LatencyGOOD))
+	}
+	if diffRatio > 0.05 {
+		diffRatio = 0.05
+	}
+
+	weights[bestServer] += weights[worstServer] * diffRatio
+	weights[worstServer] = weights[worstServer] * (1 - diffRatio)
+	fmt.Println("worst id:", worstServer, ",best id:", bestServer)
+	fmt.Println("loads finished:", durationRequestCount)
+	fmt.Print("latencyAVG: ")
+	for i := 0; i < serverNum; i++ {
+		fmt.Print(" ", (durationRequestTotalLatency[i] / time.Duration(durationRequestCount[i])).Nanoseconds())
+	}
+	fmt.Println("")
+	fmt.Print("latencyPCT99: ")
+	for i := 0; i < serverNum; i++ {
+		fmt.Print(" ", time.Duration(durationRequestDetailLatency[i][int(pct99Pos)]).Nanoseconds())
+	}
+	fmt.Println("")
+	fmt.Println("weights:", weights)
+	for i := 0; i < serverNum; i++ {
+		durationRequestCount[i] = 0
+		durationRequestTotalLatency[i] = 0
+		durationRequestErrorCount[i] = 0
+		for j := 0; j < durationRequestCountThreshold; j++ {
+			durationRequestDetailLatency[i][j] = 0
+		}
+	}
+
 }
+
+//func weightUpdate(frequency time.Duration) {
+//	for {
+//		durationLock.Lock()
+//		serverIndexToRebalance := -1
+//		worstScore := math.MaxFloat64
+//		totalScore := 0.0
+//		score := [serverNum]float64{0}
+//		hasFree := false
+//		for i := 0; i < serverNum; i++ {
+//			if durationRequestCount[i] == 0 {
+//				score[i] = scoreTable[BEST]
+//				hasFree = true
+//			} else {
+//				score[i] = getScore(durationRequestTotalLatency[i]/time.Duration(durationRequestCount[i]), durationRequestErrorCount[i], durationRequestCount[i])
+//			}
+//			totalScore += score[i]
+//			if worstScore > score[i] {
+//				worstScore = score[i]
+//				serverIndexToRebalance = i
+//			}
+//		}
+//
+//		if worstScore <= scoreTable[NORMAL] || hasFree {
+//			var niubiServers = []int{0}
+//			totalBalanceScore := 0.0
+//			for index, s := range score {
+//				if s > score[NORMAL] {
+//					totalBalanceScore += s
+//					niubiServers = append(niubiServers, index)
+//				}
+//			}
+//
+//			weightToRebalance := weights[serverIndexToRebalance] * (1 - diffRatio)
+//			weights[serverIndexToRebalance] = weights[serverIndexToRebalance] * diffRatio
+//			for _, serverIndex := range niubiServers {
+//				weights[serverIndex] += weightToRebalance * (score[serverIndex] / totalBalanceScore)
+//			}
+//		}
+//
+//		for i := 0; i < serverNum; i++ {
+//			durationRequestCount[i] = 0
+//			durationRequestTotalLatency[i] = 0
+//			durationRequestErrorCount[i] = 0
+//		}
+//		durationLock.Unlock()
+//		time.Sleep(frequency * time.Millisecond)
+//	}
+//}
 
 func requestStatistic() {
 	for i := 0; i < serverNum; i++ {
 		durationRequestCount[i] = 0
-		durationRequestLatency[i] = 0
+		durationRequestTotalLatency[i] = 0
 		durationRequestErrorCount[i] = 0
 	}
 
 	for {
 		pkg := <-calcChan
 		hints[pkg.Index]++
-		durationLock.Lock()
+		durationRequestDetailLatency[pkg.Index][durationRequestCount[pkg.Index]%durationRequestCountThreshold] = pkg.Dur.Nanoseconds()
 		durationRequestCount[pkg.Index]++
 		if pkg.Err {
 			durationRequestErrorCount[pkg.Index]++
 			errCnts[pkg.Index]++
 		}
-		durationRequestLatency[pkg.Index] += pkg.Dur
-		durationLock.Unlock()
+		durationRequestTotalLatency[pkg.Index] += pkg.Dur
 		totalDurs[pkg.Index] += pkg.Dur
+		weightUpdateLittle()
 	}
 }
 

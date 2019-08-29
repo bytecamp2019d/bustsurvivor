@@ -3,6 +3,7 @@ package maxminbalancer
 import (
 	"context"
 	"fmt"
+	//"golang.org/x/text/unicode/rangetable"
 	"google.golang.org/grpc"
 	"math"
 	"math/rand"
@@ -14,10 +15,10 @@ import (
 )
 
 var IPs = [...]string{
-	"127.0.0.1:8080",
-	"127.0.0.1:8081",
-	//"127.0.0.1:8082",
-	//"127.0.0.1:8083",
+	"10.108.18.57:8080",
+	"10.108.18.57:8081",
+	"10.108.18.134:8080",
+	"10.108.18.135:8080",
 }
 
 const (
@@ -35,7 +36,7 @@ var hints [serverNum]int
 
 var weights [serverNum]float64
 
-var COUNT = 8
+var COUNT = 0
 var weightSS [10][10]float64
 
 var ctx = context.Background()
@@ -108,6 +109,7 @@ func updateWeight() {
 		for j := 0; j < COUNT; j++ {
 			tmp = append(tmp, []float64{weightSS[i][j+1] - weightSS[i][j], 0})
 		}
+		//fmt.Println(tmp)
 		tt := calculator.GetRes(tmp, COUNT-1, 9)
 		score = append(score, tt)
 		sum += tt
@@ -123,7 +125,18 @@ func weightUpdateLittle() {
 			return
 		}
 	}
-
+	for i := 0; i < serverNum; i++ {
+		fmt.Println("Server ==========================", i)
+		fmt.Print("处理请求数量：   ")
+		fmt.Println(durationRequestCount[i])
+		fmt.Print("平均时延： ")
+		fmt.Println(durationRequestLatency[i])
+	}
+	for i := 0; i < serverNum; i++ {
+		fmt.Print(weights[i], "   ")
+	}
+	fmt.Println()
+	fmt.Println("==============================")
 	bestServer := 0
 	worstServer := 0
 	for i := 1; i < serverNum; i++ {
@@ -151,20 +164,22 @@ func weightUpdateLittle() {
 		fmt.Print(" ", durationRequestLatency[i]/time.Duration(durationRequestCount[i]))
 	}
 	for i := 0; i < serverNum; i++ {
+		weightSS[COUNT][i] = (durationRequestLatency[i] / time.Duration(durationRequestCount[i])).Seconds() * 1000
+	}
+	for i := 0; i < serverNum; i++ {
 		durationRequestCount[i] = 0
 		durationRequestLatency[i] = 0
 		durationRequestErrorCount[i] = 0
 		time.Duration(22).Nanoseconds()
 	}
-	for i := 0; i < serverNum; i++ {
-		weightSS[COUNT][i] = weights[i]
-	}
+
 	if COUNT == 8 {
 		updateWeight()
 		COUNT = 0
 		return
 	}
 	COUNT++
+
 }
 
 func requestStatistic() {
@@ -217,10 +232,14 @@ func initClients(totalConnNum int) {
 }
 
 func getClient() (bs.SurvivalServiceClient, int) {
-	sum := 0.0
+	sum1 := 0.0
 	rand.Seed(time.Now().UnixNano())
-	randNum := rand.Float64() * sum // range in [0, sum)
+	for _, w := range weights {
+		sum1 += w
+	}
+	randNum := rand.Float64() * sum1 // range in [0, sum)
 	bestIndex := 0
+	sum := 0.0
 	for i, w := range weights {
 		sum += w
 		if randNum < sum {

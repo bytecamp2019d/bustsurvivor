@@ -12,7 +12,7 @@ type CalcPkg struct {
 }
 
 const (
-	countTime = 8
+	countTime = 4
 	scoreInit = 10.0
 )
 

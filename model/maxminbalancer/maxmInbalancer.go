@@ -37,6 +37,7 @@ var hints [serverNum]int
 var weights [serverNum]float64
 
 var COUNT = 0
+var wait = 30
 var weightSS [10][10]float64
 
 var ctx = context.Background()
@@ -112,7 +113,7 @@ func updateWeight() {
 		//fmt.Println(tmp)
 		tt := calculator.GetRes(tmp, COUNT-1, 9)
 		score = append(score, tt)
-		sum += tt
+		sum += math.Abs(tt)
 	}
 	for i := 0; i < serverNum; i++ {
 		weights[i] *= (1.0 - score[i]/sum)
@@ -130,7 +131,7 @@ func weightUpdateLittle() {
 		fmt.Print("处理请求数量：   ")
 		fmt.Println(durationRequestCount[i])
 		fmt.Print("平均时延： ")
-		fmt.Println(durationRequestLatency[i])
+		fmt.Println(durationRequestLatency[i]/time.Duration(durationRequestCount[i]))
 	}
 	for i := 0; i < serverNum; i++ {
 		fmt.Print(weights[i], "   ")
@@ -172,14 +173,15 @@ func weightUpdateLittle() {
 		durationRequestErrorCount[i] = 0
 		time.Duration(22).Nanoseconds()
 	}
-
+	wait--
+	if wait < 0{
 	if COUNT == 8 {
 		updateWeight()
 		COUNT = 0
 		return
 	}
 	COUNT++
-
+	}
 }
 
 func requestStatistic() {

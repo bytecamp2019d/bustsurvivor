@@ -3,21 +3,7 @@
     {
       "connNum": 4,
       "rps": 120,
-      "loopNum": 7000,
-      "nextInterval": 2
-    },
-
-    {
-      "connNum": 4,
-      "rps": 130,
-      "loopNum": 8000,
-      "nextInterval": 2
-    },
-
-    {
-      "connNum": 4,
-      "rps": 140,
-      "loopNum": 9000,
+      "loopNum": 100000,
       "nextInterval": 2
     }
   ]
